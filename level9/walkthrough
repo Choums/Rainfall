@@ -1,1 +1,22 @@
 -rwsr-s---+ 1 bonus0 users  6720 Mar  6  2016 level9*
+
+bin c++
+
+Analyse sur le code c++ décompilé:
+
+Pas plus de 2 args
+
+l'attribut annotation est un tableau de 100
+setAnnotation() est appelé sans protection sur l'input
+=> Overflow possible 
+
+a et b sont sur la heap
+
+Offset Heap
+eax: 108
+
+=> a est alloué avant b donc l'overflow permet d'écrire dans b
+
+Vtable: Table des fonctions virtuelles
+Méchanisme que le compilo c++ utilise pour implémenter le polymorphisme dynamique
+
