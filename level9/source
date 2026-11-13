@@ -2,7 +2,7 @@
 
 // void __thiscall N::N(N *this,int param_1)
 // {
-//   *(undefined ***)this = &PTR_operator+_08048848;
+//   *(undefined ***)this = &PTR_operator+_08048848;  --> Vtable
 //   *(int *)(this + 0x68) = param_1;
 //   return;
 // }

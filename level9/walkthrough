@@ -19,4 +19,51 @@ eax: 108
 
 Vtable: Table des fonctions virtuelles
 Méchanisme que le compilo c++ utilise pour implémenter le polymorphisme dynamique
+Le compilo ne peut pas savoir à la compilation quelle version de la fonction sera réellement appelée
+
+Fonctionnement:
+1-	Le compilo génère un tableau statique de ptr de fonctions, un par méthode virtual
+	//   *(undefined ***)this = &PTR_operator+_08048848;  --> Vtable
+
+2-	Chaque instance contient un ptr caché vers la vtable de sa classe
+	Le compilo écrit silencieusement ce ptr à la création de l'objet 
+
+3-	L'appel virtuel se traduit par une doouble indirection
+	On lit le ptr de vtable dans l'objet puis à l'index de la fonctione et enfin on appelle la fonction via ce ptr
+		vtable_ptr = *(object)           
+		fonction   = *(vtable_ptr + i)
+		fonction(object, args...)
+
+Cela en fait une faille puisque la vtable est stocké dans l'objet en lui-même, en mémoire le ptr est écrasable via un overflow
+=> Plutôt que d'appeller la "vraie" version de la fonction, la vtable appellera le script 
+
+a et b sont tt les deux alloués sur la Heap donc
+
+1->	Faire overflow a sur b
+2->	Dans b, écraser le ptr le vtable avec le NOP Sled
+
+run $(python3 -c "print('A'*200)")
+
+break N::N	=> Instanciation des 2 objets -> recup leur ptr vers la heap
+
+a: 0x0804d3b0
+b: 0x0804d420
+offset => 0x70
+
+>>> b N::setAnnotation(char*) 
+>>> finish
+>>> x/s 0x0804d420
+0x804d420:      'A' <repeats 92 times>		(overflow de 92, 200 - 108)
+>>> x/s 0x0804d3b4							(eax return de memcpy)
+0x804d3b4:      'A' <repeats 200 times>
+
+On est bien sur la heap de b, il faut mtn trouver la vtable
+
+Point important:
+La vtable est tjrs la 1ere donc a b+0, ensuite l'attribut annotation
+//   memcpy(this + 4,param_1,__n);
+
+0x0804d420 pointe vers le tableau 
+
+0x0804d420 - 4 = 0x804d41c => Vtable
 
